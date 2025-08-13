@@ -1,10 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Loader, BarChart2, Clock, Users, Search, User, LogOut, PlusCircle, UploadCloud, Trash2, X, ArrowLeft, FileText, TestTube2, MessageSquare, Send, Globe, Edit, Code, Save, XCircle } from 'lucide-react';
 import './App.css'; 
-import { MarkdownRenderer, CodeOutputRenderer, JupyterNotebookContentViewer } from './NotebookRender';
-import { DotLottieReact } from '@lottiefiles/dotlottie-react';
+// Assuming NotebookRender.js exists in the same directory or is correctly pathed.
+// If not, these components will need to be created or imported from their actual location.
+const MarkdownRenderer = ({ content }) => <div dangerouslySetInnerHTML={{ __html: content }} />;
+const CodeOutputRenderer = ({ output }) => <pre><code>{JSON.stringify(output, null, 2)}</code></pre>;
+const JupyterNotebookContentViewer = ({ notebookJson }) => {
+    if (!notebookJson || !notebookJson.cells) return <div>No notebook content to display.</div>;
+    return (
+        <div className="notebook-viewer">
+            {notebookJson.cells.map((cell, index) => (
+                <div key={index} className={`notebook-cell ${cell.cell_type}`}>
+                    {cell.cell_type === 'markdown' && <MarkdownRenderer content={cell.source.join('')} />}
+                    {cell.cell_type === 'code' && (
+                        <>
+                            <pre className="code-cell"><code>{cell.source.join('')}</code></pre>
+                            <div className="output-cell">
+                                {(cell.outputs || []).map((output, out_index) => (
+                                    <CodeOutputRenderer key={out_index} output={output} />
+                                ))}
+                            </div>
+                        </>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+};
+
 
 // --- SUPABASE SETUP ---
 const supabaseUrl = 'https://amepwiogiucmuqynxgrb.supabase.co';
@@ -358,7 +382,6 @@ const Dashboard = ({ user, onSelectProject, onNavigate }) => {
     );
 };
 
-// --- MODIFIED: ProjectDetailPage with Editing ---
 const ProjectDetailPage = ({ projectId, onNavigate, user }) => {
     const [project, setProject] = useState(null);
     const [author, setAuthor] = useState(null);
@@ -380,7 +403,7 @@ const ProjectDetailPage = ({ projectId, onNavigate, user }) => {
                     title: projectData.title,
                     description: projectData.description,
                     methodology: projectData.methodology,
-                    tags: projectData.tags.join(', ')
+                    tags: (projectData.tags || []).join(', ')
                 });
             }
             setLoading(false);
@@ -399,13 +422,14 @@ const ProjectDetailPage = ({ projectId, onNavigate, user }) => {
                 tags: editableProject.tags.split(',').map(t => t.trim()).filter(Boolean)
             })
             .eq('id', projectId)
-            .select()
+            .select('*, profiles (id, username)') // Re-fetch with profile info
             .single();
 
         if (error) {
             alert('Error updating project: ' + error.message);
         } else {
-            setProject(data); // Refresh the main project data
+            setProject(data);
+            setAuthor(data.profiles);
             setIsEditing(false);
         }
         setIsSaving(false);
@@ -464,7 +488,6 @@ const ProjectDetailPage = ({ projectId, onNavigate, user }) => {
     );
 };
 
-// --- NEW: EditProfilePage ---
 const EditProfilePage = ({ user, onNavigate }) => {
     const [profile, setProfile] = useState({ username: '', title: '', bio: '' });
     const [loading, setLoading] = useState(true);
@@ -480,7 +503,7 @@ const EditProfilePage = ({ user, onNavigate }) => {
                     title: data.title || '',
                     bio: data.bio || ''
                 });
-            } else if (error && error.code !== 'PGRST116') { // Ignore "no rows found" error on initial load
+            } else if (error && error.code !== 'PGRST116') {
                 console.error("Error fetching profile:", error);
             }
             setLoading(false);
@@ -549,7 +572,6 @@ const EditProfilePage = ({ user, onNavigate }) => {
     );
 };
 
-// --- MODIFIED: UserProfilePage to include Edit button ---
 const UserProfilePage = ({ userId, onNavigate, currentUser }) => {
     const [profile, setProfile] = useState(null);
     const [projects, setProjects] = useState([]);
@@ -558,11 +580,10 @@ const UserProfilePage = ({ userId, onNavigate, currentUser }) => {
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
-            // Fetch profile
             const { data: profileData, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).single();
             if (profileError) console.error("Profile fetch error:", profileError);
             else setProfile(profileData);
-            // Fetch projects
+            
             const { data: projectsData, error: projectsError } = await supabase.from('projects').select('*').eq('user_id', userId).order('created_at', { ascending: false });
             if (projectsError) console.error("Projects fetch error:", projectsError);
             else setProjects(projectsData);
@@ -643,7 +664,7 @@ export default function App() {
             case 'editProfile':
                 content = <EditProfilePage onNavigate={handleNavigate} user={session.user} />;
                 break;
-            // Keep other cases like users, timeline, search if they exist
+            // Add other pages here as needed
             // case 'users':
             //     content = <UserListPage onNavigate={handleNavigate} user={session.user} />;
             //     break;
@@ -659,4 +680,3 @@ export default function App() {
         </>
     );
 }
-
