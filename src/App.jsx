@@ -375,85 +375,64 @@ const addProject = async (projectData, rawNotebookContent = null) => {
 };
 
 const ProjectDetailPage = ({ projectId, onNavigate, user }) => {
-    const [project, setProject] = React.useState(null);
-    const [author, setAuthor] = React.useState(null);
-    const [comments, setComments] = React.useState([]);
-    const [newComment, setNewComment] = React.useState("");
-    const [loading, setLoading] = React.useState(true);
-    const [activeTab, setActiveTab] = React.useState('description');
-    const [notebookJson, setNotebookJson] = React.useState(null); // New state for notebook JSON
-const fetchProjectData = async () => {
-    setLoading(true);
-    const { data: projectData, error: projectError } = await supabase
-        .from('projects')
-        .select('*') // Ensure '*' selects all columns, including notebook_content
-        .eq('id', projectId)
-        .single();
+    const [project, setProject] = useState(null);
+    const [author, setAuthor] = useState(null);
+    const [comments, setComments] = useState([]);
+    const [newComment, setNewComment] = useState("");
+    const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState('description');
+    const [notebookJson, setNotebookJson] = useState(null);
+    
+    // State for inline editing
+    const [isEditing, setIsEditing] = useState(false);
+    const [formData, setFormData] = useState(null);
 
-    if (projectError) {
-        console.error("Error fetching project:", projectError);
-        setLoading(false);
-        return;
-    }
-    setProject(projectData);
-
-    // Debugging logs for notebook_content
-    console.log("Project data fetched:", projectData);
-    console.log("Raw notebook_content from DB:", projectData.notebook_content);
-
-    // If notebook_content is a JSONB column, it will already be a JS object
-    // So, we just need to check if it's not null/undefined
-    if (projectData.notebook_content) {
-        // Assume it's already a JS object from Supabase JSONB
-        setNotebookJson(projectData.notebook_content);
-        console.log("Notebook JSON set directly:", projectData.notebook_content);
-    } else {
-        console.log("No notebook_content found for this project.");
-        setNotebookJson(null); // Explicitly set to null if not present
-    }
-
-    // --- Fetch Author ---
-    if (projectData && projectData.user_id) {
-        const { data: authorData, error: authorError } = await supabase
-            .from('profiles')
-            .select('*, username, id')
-            .eq('id', projectData.user_id)
+    const fetchProjectData = async () => {
+        setLoading(true);
+        const { data: projectData, error: projectError } = await supabase
+            .from('projects')
+            .select('*')
+            .eq('id', projectId)
             .single();
-        if (authorError) console.error("Error fetching author:", authorError);
-        else setAuthor(authorData);
-    }
 
-    // --- Fetch Comments ---
-    const { data: commentsData, error: commentsError } = await supabase
-        .from('comments')
-        .select('*, profiles(username, id)')
-        .eq('project_id', projectId)
-        .order('created_at', { ascending: false });
+        if (projectError) {
+            console.error("Error fetching project:", projectError);
+            setLoading(false);
+            return;
+        }
+        setProject(projectData);
+        setFormData(projectData); // Initialize form data
 
-    if (commentsError) {
-        console.error("Error fetching comments:", commentsError);
-        // Add more detailed logging for debugging Supabase errors
-        console.error("Supabase comments error details:", commentsError);
-    } else {
-        setComments(commentsData);
-    }
+        if (projectData.notebook_content) {
+            setNotebookJson(projectData.notebook_content);
+        } else {
+            setNotebookJson(null);
+        }
 
-    setLoading(false);
-};
+        if (projectData && projectData.user_id) {
+            const { data: authorData, error: authorError } = await supabase
+                .from('profiles').select('*, username, id').eq('id', projectData.user_id).single();
+            if (authorError) console.error("Error fetching author:", authorError);
+            else setAuthor(authorData);
+        }
 
-    React.useEffect(() => {
+        const { data: commentsData, error: commentsError } = await supabase
+            .from('comments').select('*, profiles(username, id)').eq('project_id', projectId).order('created_at', { ascending: false });
+        if (commentsError) console.error("Error fetching comments:", commentsError);
+        else setComments(commentsData);
+
+        setLoading(false);
+    };
+
+    useEffect(() => {
         fetchProjectData();
     }, [projectId]);
 
     const handlePostComment = async (e) => {
         e.preventDefault();
         if (!newComment.trim()) return;
-
         const { data, error } = await supabase
-            .from('comments')
-            .insert([{ content: newComment, project_id: projectId, user_id: user.id }])
-            .select('*, profiles(username, id)');
-
+            .from('comments').insert([{ content: newComment, project_id: projectId, user_id: user.id }]).select('*, profiles(username, id)');
         if (error) {
             alert("Error posting comment: " + error.message);
         } else {
@@ -462,122 +441,183 @@ const fetchProjectData = async () => {
         }
     };
 
-    if (loading) return <LoadingSpinner />;
+    // --- Handlers for Editing ---
+    const handleEditToggle = () => {
+        if (!isEditing) {
+            setFormData(project); // Reset form data on entering edit mode
+        }
+        setIsEditing(!isEditing);
+    };
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        let finalValue = value;
+        if (name === 'accuracy') {
+            finalValue = value === '' ? null : parseFloat(value);
+        } else if (name === 'tags') {
+            finalValue = value.split(',').map(tag => tag.trim()).filter(Boolean);
+        }
+        setFormData(prev => ({ ...prev, [name]: finalValue }));
+    };
+
+    const handleSave = async () => {
+        if (!formData) return;
+        setLoading(true);
+        const { data, error } = await supabase
+            .from('projects')
+            .update({
+                title: formData.title,
+                description: formData.description,
+                methodology: formData.methodology,
+                accuracy: formData.accuracy,
+                tags: formData.tags,
+            })
+            .eq('id', projectId)
+            .select()
+            .single();
+
+        setLoading(false);
+        if (error) {
+            alert('Error updating project: ' + error.message);
+        } else {
+            setProject(data);
+            setIsEditing(false);
+        }
+    };
+
+    if (loading && !isEditing) return <LoadingSpinner />;
     if (!project) return <div className="page-container"><p>Project not found.</p></div>;
 
     const mockChartData = [
         { name: 'Feature A', value: Math.random() * 100 },
         { name: 'Feature B', value: Math.random() * 100 },
         { name: 'Feature C', value: Math.random() * 100 },
-        { name: 'Feature D', value: Math.random() * 100 },
     ];
 
     return (
         <>
             <AppHeader onNavigate={onNavigate} user={user} />
             <div className="page-container project-detail-page">
-                <button onClick={() => onNavigate('dashboard')} className="back-button"><ArrowLeft size={16} /> Back to Dashboard</button>
-
-                <header className="project-detail-header">
-                    <h1>{project.title}</h1>
-                    {author && (
-                        <div className="author-info" onClick={() => onNavigate('profile', author.id)}>
-                            <User size={20} />
-                            <span>{author.username || 'Anonymous User'}</span>
+                {isEditing ? (
+                    // --- EDITING VIEW ---
+                    <div className="edit-form-container">
+                        <h1 className="edit-header">Editing: {formData.title}</h1>
+                        <div className="edit-form">
+                            <label>Title</label>
+                            <input name="title" value={formData.title} onChange={handleChange} />
+                            
+                            <label>Description</label>
+                            <textarea name="description" value={formData.description} onChange={handleChange} rows="5" />
+                            
+                            <label>Methodology</label>
+                            <textarea name="methodology" value={formData.methodology} onChange={handleChange} rows="5" />
+                            
+                            <label>Accuracy (0.0 to 1.0)</label>
+                            <input name="accuracy" type="number" step="0.01" min="0" max="1" value={formData.accuracy || ''} onChange={handleChange} />
+                            
+                            <label>Tags (comma-separated)</label>
+                            <input name="tags" value={(formData.tags || []).join(', ')} onChange={handleChange} />
                         </div>
-                    )}
-                </header>
-
-                {project.accuracy && (
-                    <Badge className="accuracy-badge">Accuracy: {(project.accuracy * 100).toFixed(2)}%</Badge>
-                )}
-
-                <div className="tag-container">
-                    {(project.tags || []).map(tag => <Badge key={tag}>{tag}</Badge>)}
-                </div>
-
-                <div className="tabs">
-                    <button className={`tab ${activeTab === 'description' ? 'active' : ''}`} onClick={() => setActiveTab('description')}>Description</button>
-                    <button className={`tab ${activeTab === 'methodology' ? 'active' : ''}`} onClick={() => setActiveTab('methodology')}>Methodology</button>
-                    <button className={`tab ${activeTab === 'visualizations' ? 'active' : ''}`} onClick={() => setActiveTab('visualizations')}>Visualizations</button>
-                    {notebookJson && ( // Only show notebook tab if content exists
-                        <button className={`tab ${activeTab === 'notebook' ? 'active' : ''}`} onClick={() => setActiveTab('notebook')}>Notebook Content</button>
-                    )}
-                    <button className={`tab ${activeTab === 'comments' ? 'active' : ''}`} onClick={() => setActiveTab('comments')}>Comments</button>
-                </div>
-
-                <div className="tab-content">
-                    {activeTab === 'description' && (
-                        <section className="project-section">
-                            <h2><FileText size={20} /> Description</h2>
-                            <p>{project.description}</p>
-                        </section>
-                    )}
-                    {activeTab === 'methodology' && (
-                        <section className="project-section">
-                            <h2><TestTube2 size={20} /> Methodology</h2>
-                            <p>{project.methodology}</p>
-                        </section>
-                    )}
-                    {activeTab === 'visualizations' && (
-                         <section className="project-section">
-                            <h2><BarChart2 size={20} /> Visualizations</h2>
-                            {project.visualizations && project.visualizations.length > 0 && project.visualizations[0] !== 'N/A' ? (
-                                <>
-                                    <ul className="viz-list">
-                                        {project.visualizations.map((viz, index) => <li key={index}>{viz}</li>)}
-                                    </ul>
-                                    <div style={{ width: '100%', height: 300, marginTop: '20px' }}>
-                                        <ResponsiveContainer>
-                                            <BarChart data={mockChartData}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)"/>
-                                                <XAxis dataKey="name" stroke="var(--text-secondary)"/>
-                                                <YAxis stroke="var(--text-secondary)"/>
-                                                <Tooltip contentStyle={{ backgroundColor: 'var(--bg-color-dark)', border: '1px solid var(--border-color)' }}/>
-                                                <Legend wrapperStyle={{color: 'var(--text-main)'}}/>
-                                                <Bar dataKey="value" fill="var(--primary-color)" />
-                                            </BarChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </>
-                            ) : (
-                                <p>No visualizations were described for this project.</p>
+                        <div className="edit-actions">
+                            <button onClick={() => setIsEditing(false)} className="button-secondary">Cancel</button>
+                            <button onClick={handleSave} className="button-primary" disabled={loading}>
+                                {loading ? 'Saving...' : 'Save Changes'}
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    // --- DISPLAY VIEW ---
+                    <>
+                        <button onClick={() => onNavigate('dashboard')} className="back-button"><ArrowLeft size={16} /> Back to Dashboard</button>
+                        <header className="project-detail-header">
+                            <h1>{project.title}</h1>
+                            {user.id === project.user_id && (
+                                <button onClick={handleEditToggle} className="action-button edit-project-btn"><Edit size={16} /> Edit Project</button>
                             )}
-                        </section>
-                    )}
-                    {activeTab === 'notebook' && notebookJson && (
-                        <section className="project-section notebook-section">
-                            <h2><Code size={20} /> Notebook Content</h2>
-                            <JupyterNotebookContentViewer notebookJson={notebookJson} />
-                        </section>
-                    )}
-                    {activeTab === 'comments' && (
-                        <section className="project-section">
-                            <h2><MessageSquare size={20} /> Comments</h2>
-                            <form onSubmit={handlePostComment} className="comment-form">
-                                <textarea
-                                    placeholder="Add a comment..."
-                                    value={newComment}
-                                    onChange={(e) => setNewComment(e.target.value)}
-                                />
-                                <button type="submit"><Send size={16}/></button>
-                            </form>
-                            <div className="comments-list">
-                                {comments.map(comment => (
-                                    <div key={comment.id} className="comment-item">
-                                        <div className="comment-author">{comment.profiles.username || 'A user'}</div>
-                                        <div className="comment-content">{comment.content}</div>
-                                        <div className="comment-date">{new Date(comment.created_at).toLocaleString()}</div>
-                                    </div>
-                                ))}
+                        </header>
+                        {author && (
+                            <div className="author-info" onClick={() => onNavigate('profile', author.id)}>
+                                <User size={20} />
+                                <span>{author.username || 'Anonymous User'}</span>
                             </div>
-                        </section>
-                    )}
-                </div>
+                        )}
+                        {project.accuracy && <Badge className="accuracy-badge">Accuracy: {(project.accuracy * 100).toFixed(2)}%</Badge>}
+                        <div className="tag-container">{(project.tags || []).map(tag => <Badge key={tag}>{tag}</Badge>)}</div>
+                        <div className="tabs">
+                            <button className={`tab ${activeTab === 'description' ? 'active' : ''}`} onClick={() => setActiveTab('description')}>Description</button>
+                            <button className={`tab ${activeTab === 'methodology' ? 'active' : ''}`} onClick={() => setActiveTab('methodology')}>Methodology</button>
+                            <button className={`tab ${activeTab === 'visualizations' ? 'active' : ''}`} onClick={() => setActiveTab('visualizations')}>Visualizations</button>
+                            {notebookJson && <button className={`tab ${activeTab === 'notebook' ? 'active' : ''}`} onClick={() => setActiveTab('notebook')}>Notebook</button>}
+                            <button className={`tab ${activeTab === 'comments' ? 'active' : ''}`} onClick={() => setActiveTab('comments')}>Comments</button>
+                        </div>
+                        <div className="tab-content">
+                             {activeTab === 'description' && (
+                                <section className="project-section">
+                                    <h2><FileText size={20} /> Description</h2>
+                                    <p>{project.description}</p>
+                                </section>
+                            )}
+                            {activeTab === 'methodology' && (
+                                <section className="project-section">
+                                    <h2><TestTube2 size={20} /> Methodology</h2>
+                                    <p>{project.methodology}</p>
+                                </section>
+                            )}
+                            {activeTab === 'visualizations' && (
+                                 <section className="project-section">
+                                    <h2><BarChart2 size={20} /> Visualizations</h2>
+                                    {project.visualizations && project.visualizations.length > 0 && project.visualizations[0] !== 'N/A' ? (
+                                        <>
+                                            <ul className="viz-list">{project.visualizations.map((viz, index) => <li key={index}>{viz}</li>)}</ul>
+                                            <div style={{ width: '100%', height: 300, marginTop: '20px' }}>
+                                                <ResponsiveContainer>
+                                                    <BarChart data={mockChartData}>
+                                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)"/>
+                                                        <XAxis dataKey="name" stroke="var(--text-secondary)"/>
+                                                        <YAxis stroke="var(--text-secondary)"/>
+                                                        <Tooltip contentStyle={{ backgroundColor: 'var(--bg-color-dark)', border: '1px solid var(--border-color)' }}/>
+                                                        <Legend wrapperStyle={{color: 'var(--text-main)'}}/>
+                                                        <Bar dataKey="value" fill="var(--primary-color)" />
+                                                    </BarChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <p>No visualizations were described for this project.</p>
+                                    )}
+                                </section>
+                            )}
+                            {activeTab === 'notebook' && notebookJson && (
+                                <section className="project-section notebook-section">
+                                    <h2><Code size={20} /> Notebook Content</h2>
+                                    <JupyterNotebookContentViewer notebookJson={notebookJson} />
+                                </section>
+                            )}
+                            {activeTab === 'comments' && (
+                                <section className="project-section">
+                                    <h2><MessageSquare size={20} /> Comments</h2>
+                                    <form onSubmit={handlePostComment} className="comment-form">
+                                        <textarea placeholder="Add a comment..." value={newComment} onChange={(e) => setNewComment(e.target.value)} />
+                                        <button type="submit"><Send size={16}/></button>
+                                    </form>
+                                    <div className="comments-list">
+                                        {comments.map(comment => (
+                                            <div key={comment.id} className="comment-item">
+                                                <div className="comment-author">{comment.profiles.username || 'A user'}</div>
+                                                <div className="comment-content">{comment.content}</div>
+                                                <div className="comment-date">{new Date(comment.created_at).toLocaleString()}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </section>
+                            )}
+                        </div>
+                    </>
+                )}
             </div>
         </>
     );
-};
+}
 
 const UserListPage = ({ onNavigate, user }) => {
     const [users, setUsers] = React.useState([]);
