@@ -17,6 +17,7 @@ const supabaseUrl = 'https://amepwiogiucmuqynxgrb.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFtZXB3aW9naXVjbXVxeW54Z3JiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI4MjQ2OTgsImV4cCI6MjA2ODQwMDY5OH0.-y2hIxFXch3nW8WnXRp0iPEKRUov7jAhczrbmK9o8-o';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+
 // --- NOTEBOOK ANALYSIS LOGIC (Placeholder) ---
 const analyzeNotebookWithLLM = async (rawNotebookContent) => {
     console.log("Analyzing notebook (mock)...");
